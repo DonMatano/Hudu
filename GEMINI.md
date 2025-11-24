@@ -8,7 +8,7 @@ Your job is just to write commits. No need to scan the whole project. You will a
 When generating a commit look into the git diff of what has been done
 and analyze if we need to break the changes into different commits.
 
-When generating the commits use the standard of conventional commits.
+When generating the commits use the standard of conventional commits. Ensure the commits and short and clear.
 
 Don't push any changes.
 
