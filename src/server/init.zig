@@ -2,12 +2,16 @@ const std = @import("std");
 const net = std.net;
 // const Io = std.Io;
 const assert = std.debug.assert;
+const Alloc = std.mem.Allocator;
 const port = 5758;
 const httpRequest = @import("httpRequest.zig");
 
 pub fn run() !void {
     const IPAddress = try net.Ip4Address.parse("127.0.0.1", port);
     const address = net.Address{ .in = IPAddress };
+    var debug_alloc = std.heap.DebugAllocator(.{}).init;
+    defer assert(debug_alloc.deinit() == .ok);
+    const alloc = debug_alloc.allocator();
 
     // var stdout_buffer: [1028]u8 = undefined;
     // var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -24,7 +28,7 @@ pub fn run() !void {
     while (true) {
         var connection = try server.accept();
         defer connection.stream.close();
-        const req = try httpRequest.parseHttpConnection(&connection);
+        const req = try httpRequest.parseHttpConnection(&connection, alloc);
 
         std.debug.print("Request: {any}\n", .{req});
         // var writer_wrapper = connection.stream.writer(&write_buffer);
