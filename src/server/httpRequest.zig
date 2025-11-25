@@ -89,6 +89,9 @@ const HeaderData = struct {
         }
         return header;
     }
+    pub fn getHeader(self: *HeaderData, headerKey: []const u8) ?[]const u8 {
+        return self.headers.get(headerKey);
+    }
     pub fn deinit(self: *HeaderData) void {
         self.headers.deinit();
     }
