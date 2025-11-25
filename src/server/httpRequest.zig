@@ -4,14 +4,18 @@ const mem = std.mem;
 const enums = std.enums;
 const meta = std.meta;
 const Io = std.Io;
+const testing = std.testing;
 pub const Request = struct {
     route: []const u8,
     method: Method,
     protocol: HTTPProtocol,
+    headers: std.StringHashMap([]const u8),
 };
 
 pub const Method = enum {
     GET,
+    POST,
+    OPTIONS,
     fn mapMethod(method: []const u8) !Method {
         return meta.stringToEnum(Method, method) orelse error.MissingHTTPMethod;
     }
@@ -97,7 +101,7 @@ const HeaderData = struct {
     }
 };
 pub fn parseHttpConnection(connection: *net.Server.Connection, alloc: mem.Allocator) !Request {
-    var connection_read_buffer: [1028]u8 = undefined;
+    var connection_read_buffer: [1024]u8 = undefined;
     var reader_wrapper = connection.stream.reader(&connection_read_buffer);
     const reader = &reader_wrapper.interface_state;
     // Get the first line
@@ -115,5 +119,42 @@ pub fn parseHttpConnection(connection: *net.Server.Connection, alloc: mem.Alloca
         .route = RequestLine.route,
         .method = RequestLine.method,
         .protocol = RequestLine.protocol,
+        .headers = header_data.headers.move(),
     };
+}
+
+test "parseStartLine successfully parses startline" {
+    const req = "GET / HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const request = try RequestLineData.parseStartLine(&reader);
+    try testing.expectEqual(Method.GET, request.method);
+    try testing.expectEqualStrings("/", request.route);
+    try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
+}
+
+test "parseStartLine successfully parses request with complex URI" {
+    const req = "POST /api/v1/users?sort=desc&limit=50 HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const request = try RequestLineData.parseStartLine(&reader);
+    try testing.expectEqual(Method.POST, request.method);
+    try testing.expectEqualStrings("/api/v1/users?sort=desc&limit=50", request.route);
+    try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
+}
+
+test "parseStartLine successfully parses request with full proxy(http://) URI" {
+    const req = "GET http://www.example.com/index.html HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const request = try RequestLineData.parseStartLine(&reader);
+    try testing.expectEqual(Method.GET, request.method);
+    try testing.expectEqualStrings("http://www.example.com/index.html", request.route);
+    try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
+}
+
+test "parseStartLine successfully parses request with OPTION and a * as URI" {
+    const req = "OPTIONS * HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const request = try RequestLineData.parseStartLine(&reader);
+    try testing.expectEqual(Method.OPTIONS, request.method);
+    try testing.expectEqualStrings("*", request.route);
+    try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
 }
