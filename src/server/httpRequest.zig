@@ -23,10 +23,10 @@ pub const Method = enum {
 pub const HTTPProtocol = enum {
     @"1.1",
     fn mapProtocol(protocol_string: []const u8) !HTTPProtocol {
-        const trimmed = protocol_string[0..(protocol_string.len - 2)]; // Assuming and removing last CRLF
-        if (mem.eql(u8, trimmed, "HTTP/1.1")) {
+        if (mem.eql(u8, protocol_string, "HTTP/1.1")) {
             return .@"1.1";
         } else {
+            std.log.err("Failed to get protocal for {s}", .{protocol_string});
             return error.MissingHTTPProtocol;
         }
     }
@@ -37,6 +37,7 @@ pub const HTTPProtocol = enum {
 // });
 
 const HTTPProtocolError = error{MalformedHTTPRequestLine};
+const HTTPErrors = error{BadRequest};
 
 const RequestLineData = struct {
     route: []const u8,
@@ -44,12 +45,26 @@ const RequestLineData = struct {
     protocol: HTTPProtocol,
     fn parseStartLine(reader: *Io.Reader) !RequestLineData {
         const request_first_line = try reader.peekDelimiterInclusive('\n');
-        var splits = mem.splitScalar(u8, request_first_line, ' ');
+        var splits = mem.splitScalar(u8, request_first_line[0 .. request_first_line.len - 2], ' '); // remove last CRLF
         // Method Route Protocol
         // TODO: Update so that we can handle a CRLF possiblity on the first line
-        const method = splits.next() orelse return HTTPProtocolError.MalformedHTTPRequestLine;
-        const route = splits.next() orelse return HTTPProtocolError.MalformedHTTPRequestLine;
-        const protocol = splits.next() orelse return HTTPProtocolError.MalformedHTTPRequestLine;
+        // If it's more than 3 then we return a bad request
+        var data: [3][]const u8 = undefined;
+        var index: u2 = 0;
+        while (splits.next()) |value| {
+            if (value.len == 0 or index == 3) {
+                std.log.err("Failed and got {s} for index {d}", .{ value, index });
+                return HTTPErrors.BadRequest;
+            }
+            data[index] = value;
+            index += 1;
+            if (index >= 3) {
+                break;
+            }
+        }
+        const method = data[0];
+        const route = data[1];
+        const protocol = data[2];
 
         const enumMethod = try Method.mapMethod(method);
         const enumProtocol = try HTTPProtocol.mapProtocol(protocol);
@@ -157,4 +172,10 @@ test "parseStartLine successfully parses request with OPTION and a * as URI" {
     try testing.expectEqual(Method.OPTIONS, request.method);
     try testing.expectEqualStrings("*", request.route);
     try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
+}
+test "parseStartLine throws error when parsing a malformed URI" {
+    const req = "GET    /     HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
 }
