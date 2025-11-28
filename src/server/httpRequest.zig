@@ -45,11 +45,16 @@ const RequestLineData = struct {
     protocol: HTTPProtocol,
     fn parseStartLine(reader: *Io.Reader) !RequestLineData {
         const request_first_line = try reader.peekDelimiterInclusive('\n');
+        const breakLine = request_first_line[request_first_line.len - 2 ..];
+        if (!mem.eql(u8, breakLine, "\r\n")) {
+            std.log.err("Missing end break\t: Line ends with '{s}'", .{breakLine});
+            return HTTPErrors.BadRequest;
+        }
         var splits = mem.splitScalar(u8, request_first_line[0 .. request_first_line.len - 2], ' '); // remove last CRLF
         // Method Route Protocol
         // TODO: Update so that we can handle a CRLF possiblity on the first line
         // If it's more than 3 then we return a bad request
-        var data: [3][]const u8 = undefined;
+        var data: [3][]const u8 = [_][]const u8{ "", "", "" };
         var index: u2 = 0;
         while (splits.next()) |value| {
             if (value.len == 0 or index == 3) {
@@ -62,12 +67,22 @@ const RequestLineData = struct {
                 break;
             }
         }
-        const method = data[0];
-        const route = data[1];
-        const protocol = data[2];
+        const method = if (data[0].len > 0) data[0] else return HTTPErrors.BadRequest;
+        const route = if (data[1].len > 0) data[1] else return HTTPErrors.BadRequest;
+        const protocol = if (data[2].len > 0) data[2] else return HTTPErrors.BadRequest;
 
-        const enumMethod = try Method.mapMethod(method);
-        const enumProtocol = try HTTPProtocol.mapProtocol(protocol);
+        const enumMethod = Method.mapMethod(method) catch |err| switch (err) {
+            error.MissingHTTPMethod => {
+                std.log.err("Got error for method: {s} - {}", .{ method, err });
+                return HTTPErrors.BadRequest;
+            }
+        };
+        const enumProtocol = HTTPProtocol.mapProtocol(protocol) catch |err| switch (err) {
+            error.MissingHTTPProtocol => {
+                std.log.err("Got Http Protocol error for protocol:{s} - {}", .{ protocol, err });
+                return HTTPErrors.BadRequest;
+            },
+        };
         return .{
             .method = enumMethod,
             .route = route,
@@ -173,8 +188,50 @@ test "parseStartLine successfully parses request with OPTION and a * as URI" {
     try testing.expectEqualStrings("*", request.route);
     try testing.expectEqual(HTTPProtocol.@"1.1", request.protocol);
 }
-test "parseStartLine throws error when parsing a malformed URI" {
+test "parseStartLine throws error when parsing a extra spaced malformed URI" {
     const req = "GET    /     HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when parsing a truncated Line" {
+    const req = "GET /api/data\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when protocol doesn't start with HTTP" {
+    const req = "POST / HTTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when it's a garbage request" {
+    const req = "12345 INVALID REQUEST\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when method is lowercase" {
+    const req = "get / HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when line ends with just LF" {
+    const req = "GET / HTTP/1.1\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when there is unencoded space on the URI" {
+    const req = "GET /my file.html HTTP/1.1\r\n";
+    var reader = Io.Reader.fixed(req);
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
+}
+test "parseStartLine throws error when the Request line is too long. " {
+    const req = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA / HTTP/1.1\r\n";
     var reader = Io.Reader.fixed(req);
     const expectedError = error.BadRequest;
     try testing.expectError(expectedError, RequestLineData.parseStartLine(&reader));
