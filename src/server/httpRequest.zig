@@ -4,8 +4,10 @@ const mem = std.mem;
 const heap = std.heap;
 const enums = std.enums;
 const meta = std.meta;
+const log = std.log;
 const Io = std.Io;
 const testing = std.testing;
+const httpStatus = @import("httpStatus.zig");
 pub const Request = struct {
     route: []const u8,
     method: Method,
@@ -57,65 +59,21 @@ pub const HTTPProtocol = enum {
 const HTTPProtocolError = error{MalformedHTTPRequestLine};
 const HTTPErrors = error{ BadRequest, NotImplemented };
 
+// TODO: Handle Custom Methods
+
 fn parseMethod(buf: []const u8, req: *Request) !usize {
     const endIndx = std.mem.indexOf(u8, buf, " ") orelse return HTTPErrors.BadRequest;
     const method_string = buf[0..endIndx];
+    const separatorTokens = "()<>@,;:\\\"/[]?={} \t";
+    const hasSeperator = std.mem.indexOfAny(u8, method_string, separatorTokens);
+    if (hasSeperator != null) {
+        log.err("method {s} found with separator", .{method_string});
+        return HTTPErrors.BadRequest;
+    }
     const method = try Method.mapMethod(method_string);
     req.method = method;
     return method_string.len + 1; // Remove the space
 }
-// const RequestLineData = struct {
-//     route: []const u8,
-//     method: Method,
-//     protocol: HTTPProtocol,
-//     fn parseStartLine(buf: []const u8, req: *Request) !void {
-//         const start_line_end_indx = try mem.indexOf(u8, buf, "\n");
-//         const request_first_line = buf[0..start_line_end_indx];
-//
-//         if (!mem.eql(u8, breakLine, "\r\n")) {
-//             std.log.err("Missing end break\t: Line ends with '{s}'", .{breakLine});
-//             return HTTPErrors.BadRequest;
-//         }
-//         var splits = mem.splitScalar(u8, request_first_line[0 .. request_first_line.len - 2], ' '); // remove last CRLF
-//         // Method Route Protocol
-//         // TODO: Update so that we can handle a CRLF possiblity on the first line
-//         // If it's more than 3 then we return a bad request
-//         var data: [3][]const u8 = [_][]const u8{ "", "", "" };
-//         var index: u2 = 0;
-//         while (splits.next()) |value| {
-//             if (value.len == 0 or index == 3) {
-//                 std.log.err("Failed and got {s} for index {d}", .{ value, index });
-//                 return HTTPErrors.BadRequest;
-//             }
-//             data[index] = value;
-//             index += 1;
-//             if (index >= 3) {
-//                 break;
-//             }
-//         }
-//         const method = if (data[0].len > 0) data[0] else return HTTPErrors.BadRequest;
-//         const route = if (data[1].len > 0) data[1] else return HTTPErrors.BadRequest;
-//         const protocol = if (data[2].len > 0) data[2] else return HTTPErrors.BadRequest;
-//
-//         const enumMethod = Method.mapMethod(method) catch |err| switch (err) {
-//             error.MissingHTTPMethod => {
-//                 std.log.err("Got error for method: {s} - {}", .{ method, err });
-//                 return HTTPErrors.BadRequest;
-//             }
-//         };
-//         const enumProtocol = HTTPProtocol.mapProtocol(protocol) catch |err| switch (err) {
-//             error.MissingHTTPProtocol => {
-//                 std.log.err("Got Http Protocol error for protocol:{s} - {}", .{ protocol, err });
-//                 return HTTPErrors.BadRequest;
-//             },
-//         };
-//         return .{
-//             .method = enumMethod,
-//             .route = route,
-//             .protocol = enumProtocol,
-//         };
-//     }
-// };
 const HeaderData = struct {
     headers: std.StringHashMap([]const u8),
     pub fn parseHeader(reader: *Io.Reader, alloc: mem.Allocator) !HeaderData {
@@ -188,6 +146,26 @@ test "parseMethod successfully parses Method" {
     try testing.expectEqual(4, read_bytes);
     try testing.expectEqual(Method.GET, req.method);
 }
+test "parseMethod fails when the method has separator ':'" {
+    const req_string = "GET:DATA / HTTP/1.1\r\n";
+    var req = Request.init();
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, parseMethod(req_string, &req));
+}
+test "parseMethod fails when the method has separator '@'" {
+    const req_string = "GET@ / HTTP/1.1\r\n";
+    var req = Request.init();
+    const expectedError = error.BadRequest;
+    try testing.expectError(expectedError, parseMethod(req_string, &req));
+}
+// TODO:: We may need to handle Custom Methods
+// test "parseMethod successfully parses Method when given custom method" {
+//     const req_string = "GET / HTTP/1.1\r\n";
+//     var req = Request.init();
+//     const read_bytes = try parseMethod(req_string, &req);
+//     try testing.expectEqual(4, read_bytes);
+//     try testing.expectEqual(Method.GET, req.method);
+// }
 
 // test "parseStartLine successfully parses startline" {
 //     const req = "GET / HTTP/1.1\r\n";
