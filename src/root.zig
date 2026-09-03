@@ -2,6 +2,6 @@
 const std = @import("std");
 const server = @import("server/init.zig");
 
-pub fn init() !void {
-    try server.run();
+pub fn init(io: std.Io) !void {
+    try server.run(.{ .port = 5758 }, io);
 }
