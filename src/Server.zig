@@ -1,17 +1,29 @@
 const std = @import("std");
 const Config = @import("types.zig").Config;
 const assert = std.debug.assert;
-const Alloc = std.mem.Allocator;
+const Allocator = std.mem.Allocator;
 const httpRequest = @import("httpRequest.zig");
 const http = std.http;
 const Io = std.Io;
 const net = Io.net;
 
-const init_log = std.log.scoped(.InitLog);
+const server_log = std.log.scoped(.ServerLog);
 
-pub fn run(config: Config, io: Io, alloc: Alloc) !void {
+const Server = @This();
+
+config: Config,
+
+pub fn init(config: Config, io: Io, alloc: Allocator) !Server {
+    _ = io;
     _ = alloc;
-    const address = try net.IpAddress.parseIp4("127.0.0.1", config.port);
+    return .{
+        .config = config,
+    };
+}
+
+pub fn run(s: *Server, io: Io, alloc: Allocator) !void {
+    _ = alloc;
+    const address = try net.IpAddress.parseIp4("127.0.0.1", s.config.port);
 
     // const alloc = debug_alloc.allocator();
 
@@ -21,7 +33,7 @@ pub fn run(config: Config, io: Io, alloc: Alloc) !void {
 
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
-    std.log.info("\nStarting server on port: {d}\n", .{config.port});
+    std.log.info("\nStarting server on port: {d}\n", .{s.config.port});
     var receive_buffer: [1028]u8 = undefined;
     var send_buffer: [1028]u8 = undefined;
 
@@ -37,22 +49,22 @@ pub fn run(config: Config, io: Io, alloc: Alloc) !void {
         var conn_writer = connection.writer(io, &send_buffer);
         var local_server = std.http.Server.init(&conn_reader.interface, &conn_writer.interface);
         while (local_server.reader.state == .ready) {
-            init_log.debug("server status {any}", .{local_server.reader.state});
+            server_log.debug("server status {any}", .{local_server.reader.state});
             var request = local_server.receiveHead() catch |err| switch (err) {
                 error.HttpConnectionClosing => return,
                 else => {
-                    init_log.err("closing http connection: {s}", .{@errorName(err)});
+                    server_log.err("closing http connection: {s}", .{@errorName(err)});
                     return;
                 },
             };
-            init_log.debug("server status {any}", .{local_server.reader.state});
+            server_log.debug("server status {any}", .{local_server.reader.state});
             var body_payload: [2048]u8 = undefined;
             if (request.head.content_length != null) {
-                init_log.debug("content length {d}", .{request.head.content_length.?});
+                server_log.debug("content length {d}", .{request.head.content_length.?});
             }
             var body_reader = local_server.reader.bodyReader(&body_payload, request.head.transfer_encoding, request.head.content_length);
             const read_bytes = try body_reader.readSliceShort(&body_payload);
-            init_log.debug("Received Body: \n{s}\n", .{body_payload[0..read_bytes]});
+            server_log.debug("Received Body: \n{s}\n", .{body_payload[0..read_bytes]});
             try request.respond(response, .{ .status = .ok });
         }
         // var read_slice_buffer: [1028]u8 = undefined;
