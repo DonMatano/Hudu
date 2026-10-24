@@ -1,5 +1,6 @@
 const std = @import("std");
 const Config = @import("server/types.zig").Config;
+const Router = @import("server/Router.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const http = std.http;
@@ -12,6 +13,7 @@ const Server = @This();
 
 config: Config,
 local_server: net.Server,
+router: ?Router = null,
 
 pub fn init(config: Config, io: Io, allocator: Allocator) !Server {
     _ = allocator;
@@ -24,12 +26,16 @@ pub fn init(config: Config, io: Io, allocator: Allocator) !Server {
     };
 }
 
+pub fn addRouter(s: *Server, r: Router) void {
+    s.router = r;
+}
+
 pub fn listen(s: *Server, io: Io, allocator: Allocator) !void {
     std.log.info("\nStarting server on port: {d}\n", .{s.config.port});
-    const receive_buffer = try allocator.alloc(u8, 1028);
-    const send_buffer = try allocator.alloc(u8, 1028);
+    const receive_buffer = try allocator.alloc(u8, s.config.max_req_size);
+    const send_buffer = try allocator.alloc(u8, s.config.max_res_size);
 
-    const response = "Hello World!";
+    // const response = "Hello World!";
 
     while (true) {
         var connection = try s.local_server.accept(io);
@@ -49,15 +55,17 @@ pub fn listen(s: *Server, io: Io, allocator: Allocator) !void {
                     return;
                 },
             };
-            server_log.debug("server status {any}", .{http_server.reader.state});
-            var body_payload: [2048]u8 = undefined;
-            if (request.head.content_length != null) {
-                server_log.debug("content length {d}", .{request.head.content_length.?});
-            }
-            var body_reader = http_server.reader.bodyReader(&body_payload, request.head.transfer_encoding, request.head.content_length);
-            const read_bytes = try body_reader.readSliceShort(&body_payload);
-            server_log.debug("Received Body: \n{s}\n", .{body_payload[0..read_bytes]});
-            try request.respond(response, .{ .status = .ok });
+            const route = try getRoute(&request, s.router.?);
+            server_log.debug("Got route of path {s}", .{route.path});
+            // server_log.debug("server status {any}", .{http_server.reader.state});
+            // var body_payload = try allocator.alloc(u8, s.config.max_res_size);
+            // if (request.head.content_length != null) {
+            //     server_log.debug("content length {d}", .{request.head.content_length.?});
+            // }
+            // var body_reader = http_server.reader.bodyReader(body_payload, request.head.transfer_encoding, request.head.content_length);
+            // const read_bytes = try body_reader.readSliceShort(body_payload);
+            // server_log.debug("Received Body: \n{s}\n", .{body_payload[0..read_bytes]});
+            // try request.respond(response, .{ .status = .ok });
         }
         // var read_slice_buffer: [1028]u8 = undefined;
         // std.debug.print("{s}", .{byte_as_string});
@@ -68,4 +76,21 @@ pub fn listen(s: *Server, io: Io, allocator: Allocator) !void {
         // try writer.writeAll(response);
         // try writer.flush();
     }
+}
+
+fn getRoute(req: *http.Server.Request, router: Router) !Router.Route {
+    return switch (req.head.method) {
+        .GET => return router.get_routes.get(req.head.target) orelse {
+            server_log.err("Failed to get route path {s}", .{req.head.target});
+            return error.MissingGetRoute;
+        },
+        else => {
+            server_log.err("Failed to get method {s}", .{@tagName(req.head.method)});
+            return error.MissingMethodImplementation;
+        },
+    };
+}
+
+pub fn deinit(s: *Server, io: Io) void {
+    s.local_server.deinit(io);
 }
