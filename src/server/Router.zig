@@ -6,6 +6,9 @@ const Allocator = std.mem.Allocator;
 // Currently just using maps to get things rolling.
 
 get_routes: std.StringHashMap(Route),
+put_routes: std.StringHashMap(Route),
+delete_routes: std.StringHashMap(Route),
+create_routes: std.StringHashMap(Route),
 
 const Router = @This();
 pub const Route = struct {
@@ -18,12 +21,18 @@ pub fn init(alloc: Allocator) Router {
     // const get_routes = std.StringHashMap(Route).init(alloc);
     return .{
         .get_routes = .init(alloc),
+        .put_routes = .init(alloc),
+        .delete_routes = .init(alloc),
+        .create_routes = .init(alloc),
     };
 }
 
 pub fn addRoute(router: *Router, comptime route: Route) !void {
     return switch (route.method) {
         .get => router.get_routes.put(route.path, route),
+        .create => router.create_routes.put(route.path, route),
+        .delete => router.delete_routes.put(route.path, route),
+        .put => router.delete_routes.put(route.path, route),
         else => return error.UnhandledRouteMethod,
     };
 }

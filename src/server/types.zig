@@ -20,8 +20,13 @@ pub const HTTP_METHOD = enum {
     post,
     delete,
     create,
-    patch,
     put,
+    head,
+    connect,
+    options,
+    trace,
+    patch,
+    query,
 };
 
 pub const HttpRequest = struct {
