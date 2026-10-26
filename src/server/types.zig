@@ -12,7 +12,7 @@ const DynamicParamsValue = union(enum) {
 };
 
 pub const Context = struct {
-    params: std.StringHashMap(DynamicParamsValue),
+    params: ?std.StringHashMap(DynamicParamsValue) = null,
 };
 
 pub const HTTP_METHOD = enum {

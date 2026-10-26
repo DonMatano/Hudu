@@ -1,7 +1,6 @@
 const std = @import("std");
-const Config = @import("server/types.zig").Config;
+const hudu_types = @import("server/types.zig");
 const Router = @import("server/Router.zig");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const http = std.http;
 const Io = std.Io;
@@ -11,11 +10,11 @@ const server_log = std.log.scoped(.ServerLog);
 
 const Server = @This();
 
-config: Config,
+config: hudu_types.Config,
 local_server: net.Server,
 router: ?Router = null,
 
-pub fn init(config: Config, io: Io, allocator: Allocator) !Server {
+pub fn init(config: hudu_types.Config, io: Io, allocator: Allocator) !Server {
     _ = allocator;
     const address = try net.IpAddress.parseIp4("127.0.0.1", config.port);
     const s = try address.listen(io, .{ .reuse_address = true });
@@ -56,7 +55,10 @@ pub fn listen(s: *Server, io: Io, allocator: Allocator) !void {
                 },
             };
             const route = try getRoute(&request, s.router.?);
-            server_log.debug("Got route of path {s}", .{route.path});
+            const context: hudu_types.Context = .{};
+            const req: hudu_types.HttpRequest = .{ .method = route.method, .path = route.path };
+            try route.handler(context, req);
+            // server_log.debug("Got route of path {s}", .{route.path});
             // server_log.debug("server status {any}", .{http_server.reader.state});
             // var body_payload = try allocator.alloc(u8, s.config.max_res_size);
             // if (request.head.content_length != null) {
